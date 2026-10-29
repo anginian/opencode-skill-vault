@@ -124,13 +124,31 @@ skill 生成 keywords，没变的一律不碰。
 
 两级，在 `match()` 里：
 
-| 级别 | 条件 | 例子 |
-|---|---|---|
-| strong | 消息里出现完整关键词 | 说「用 playwright-cli」→ 命中 `playwright-cli` |
-| weak | 长关键词被短词部分命中 | 说「canvas」→ 命中 `json-canvas` |
+| 级别 | 权重 | 条件 | 例子 |
+|---|---|---|---|
+| strong | 1.0 | 消息里出现完整关键词 | 说「用 playwright-cli」→ 命中 `playwright-cli` |
+| weak | 0.5 | 长关键词被短词部分命中 | 说「canvas」→ 命中 `json-canvas` |
 
-排序时 strong 永远压过 weak。否则你说 `playwright-cli`，
-会被它的兄弟 `playwright-remote-control` 抢走。
+排序分数：
+
+```
+score = (strong × 1.0 + weak × 0.5) × (1 + 0.3 × coverage(命中数))
+```
+
+**覆盖率加成**：一句话里命中的关键词越多，说明意图越明确。
+「小宇宙播客的播放量」同时中三个词，分数应高于只说「播客」。
+
+```
+「小宇宙上这期节目多少播放量」→ score 2.41（中 2 个）
+「播客」                      → score 1.13（中 1 个）
+```
+
+覆盖率用对数压缩，避免关键词多的技能天然占便宜。
+
+**族名排除**：多个技能共享的名字片段没有区分度。
+`obsidian-cli` 和 `obsidian-markdown` 共享 `obsidian`，
+用户单独说「obsidian」时不靠名字命中其中任何一个——
+这时该由 keywords 里显式写的中文词决定。
 
 限制：
 

@@ -203,6 +203,18 @@ export function findFamilyWords(skills) {
   return new Set([...seen.entries()].filter(([, n]) => n > 1).map(([w]) => w))
 }
 
+// 覆盖率：用户一句话里有多少比例的关键词被这个技能接住。
+// 命中越多说明意图越明确，排序时应该靠前。
+// 例：「小宇宙播客的播放量」同时中「小宇宙」「播客」「播放量」，
+//     不该和只中「播客」的等价。
+export const COVERAGE_BOOST = 0.3
+
+export function coverage(keywordCount) {
+  // 关键词越多，覆盖率的绝对值越难高，做个温和的对数压缩
+  if (keywordCount <= 0) return 0
+  return Math.min(1, Math.log2(1 + keywordCount) / Math.log2(1 + 4))
+}
+
 export function match(skills, text) {
   const lower = text.toLowerCase()
   const words = lower.split(/[^0-9a-z\u4e00-\u9fff]+/).filter((w) => w.length >= 2)
@@ -219,11 +231,17 @@ export function match(skills, text) {
       else weak++
       which.push(k)
     }
-    if (strong + weak) scored.push({ skill: s, strong, weak, hits: strong + weak, which })
+    if (strong + weak) {
+      const hits = strong + weak
+      // 分数 = 强度（strong 计 1、weak 计 0.5）+ 覆盖率加成
+      const strength = strong + weak * 0.5
+      const score = strength * (1 + COVERAGE_BOOST * coverage(hits))
+      scored.push({ skill: s, strong, weak, hits, which, score })
+    }
   }
-  // 先按「完全包含」的个数降序，再按总数，最后按名字保证确定性
+  // 强度优先；强度相同再看覆盖率与命中数；最后按名字保证确定性
   scored.sort(
-    (a, b) => b.strong - a.strong || b.hits - a.hits || a.skill.name.localeCompare(b.skill.name),
+    (a, b) => b.score - a.score || b.hits - a.hits || a.skill.name.localeCompare(b.skill.name),
   )
   return scored
 }

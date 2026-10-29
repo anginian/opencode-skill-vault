@@ -15,7 +15,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { parseFrontmatter, match, hitKind, collect } from "./skill-vault.ts"
+import { parseFrontmatter, match, hitKind, collect, coverage } from "./skill-vault.ts"
 
 /* ---------------------------------------------------------- frontmatter */
 
@@ -161,4 +161,43 @@ test("collect: 没有 keywords 时从描述退化提词", () => {
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+/* ------------------------------------------------------------- coverage */
+
+test("coverage: 命中越多分越高，但有上限", () => {
+  assert.equal(coverage(0), 0)
+  assert.ok(coverage(1) < coverage(2))
+  assert.ok(coverage(2) < coverage(3))
+  assert.ok(coverage(10) <= 1)
+})
+
+test("match: 多关键词命中排在单关键词命中之前", () => {
+  const pool = [
+    // A 只中一个强词
+    { name: "podcast-tools", path: "/a", keywords: ["播客"] },
+    // B 中三个强词
+    { name: "xiaoyuzhou-search", path: "/b", keywords: ["小宇宙", "播客", "播放量"] },
+  ]
+  const r = match(pool, "小宇宙播客的播放量")
+  assert.equal(r[0].skill.name, "xiaoyuzhou-search")
+  assert.equal(r[0].strong, 3)
+  assert.equal(r[1].strong, 1)
+})
+
+test("match: 覆盖率不推翻 strong > weak", () => {
+  // weak 命中多个，仍不该压过 strong 命中一个
+  const pool = [
+    { name: "json-canvas", path: "/c", keywords: ["json-canvas"] },
+    { name: "canvas-extra", path: "/d", keywords: ["canvas-extra"] },
+  ]
+  const r = match(pool, "json-canvas")
+  assert.equal(r[0].skill.name, "json-canvas")
+})
+
+test("match: 分数可用于排序且稳定", () => {
+  const r1 = match(skills, "用 playwright-cli 打开网页填表")
+  const r2 = match(skills, "用 playwright-cli 打开网页填表")
+  assert.deepEqual(r1.map(x => x.skill.name), r2.map(x => x.skill.name))
+  assert.ok(r1[0].score > 0)
 })
