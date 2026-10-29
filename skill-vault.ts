@@ -20,7 +20,7 @@ import { existsSync, readFileSync, readdirSync, appendFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { isAbsolute, join, relative } from "node:path"
 
-const PLUGIN_ID = "skill-vault"
+export const PLUGIN_ID = "skill-vault"
 const DEFAULT_DIRS = [join(homedir(), ".config", "opencode", "skill-vault")]
 const CONFIG_PATH = join(homedir(), ".config", "opencode", "skill-vault.json")
 const LOG_PATH = join(tmpdir(), "skill-vault.log")
@@ -35,7 +35,7 @@ const debug = (msg) => {
 /* ------------------------------------------------------------ frontmatter */
 
 // 只认 v2 需要的几个字段，够用就行。故意不做完整 YAML。
-function parseFrontmatter(text) {
+export function parseFrontmatter(text) {
   const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)
   if (!m) return {}
   const out = {}
@@ -121,7 +121,7 @@ function walk(root, out, depth = 0) {
   }
 }
 
-function collect({ dirs }) {
+export function collect({ dirs }) {
   const files = []
   for (const d of dirs) walk(d, files)
   const skills = []
@@ -171,27 +171,49 @@ function collect({ dirs }) {
 //   用户说 "创建一个 canvas"    → 关键词包含消息里的词   kw.includes(word)    weak
 // 两类分开计数：完全包含永远压过拆词命中，
 // 否则 "playwright-cli" 会被 "playwright-remote-control" 抢走。
-function hitKind(keyword, lower, words) {
+export function hitKind(keyword, lower, words, isName = false, familyWords = new Set()) {
   const k = keyword.toLowerCase().trim()
   if (!k) return 0
   if (lower.includes(k)) return 2 // strong
   // 含空格的关键词（如 "obsidian 格式"）不做拆词反查，极易误命中
   if (/\s/.test(k)) return 0
+  // 名字参与拆词反查，但要排除"族名"：
+  // obsidian-cli / obsidian-markdown 共享 "obsidian"，说明它是类别词不是区分词，
+  // 用户说 "obsidian" 时不该命中其中任何一个。
+  if (isName && familyWords.has(k)) return 0
   // 长关键词被用户的短词部分命中（"json-canvas" ← "canvas"）
-  if (k.length >= 5 && words.some((w) => w.length >= 4 && w !== k && k.includes(w))) return 1 // weak
+  if (k.length >= 5 && words.some((w) => w.length >= 4 && w !== k && !(isName && familyWords.has(w)) && k.includes(w))) {
+    return 1 // weak
+  }
   return 0
 }
 
-function match(skills, text) {
+// 找出被多个技能名字共享的词（含连字符拆开的片段），这些词没有区分度
+export function findFamilyWords(skills) {
+  const seen = new Map()
+  for (const s of skills) {
+    const parts = new Set(
+      String(s.name)
+        .toLowerCase()
+        .split(/[^0-9a-z\u4e00-\u9fff]+/)
+        .filter((p) => p.length >= 4),
+    )
+    for (const p of parts) seen.set(p, (seen.get(p) || 0) + 1)
+  }
+  return new Set([...seen.entries()].filter(([, n]) => n > 1).map(([w]) => w))
+}
+
+export function match(skills, text) {
   const lower = text.toLowerCase()
   const words = lower.split(/[^0-9a-z\u4e00-\u9fff]+/).filter((w) => w.length >= 2)
+  const family = findFamilyWords(skills)
   const scored = []
   for (const s of skills) {
     let strong = 0
     let weak = 0
     const which = []
     for (const k of s.keywords) {
-      const kind = hitKind(k, lower, words)
+      const kind = hitKind(k, lower, words, k === s.name, family)
       if (!kind) continue
       if (kind === 2) strong++
       else weak++
